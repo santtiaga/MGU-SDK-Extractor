@@ -7,7 +7,7 @@ HOST="$1"
 SSH_OPTS=(-T -o BatchMode=yes -o ConnectTimeout=10)
 SCP_OPTS=(-O -o BatchMode=yes -o ConnectTimeout=10)
 if [[ -n "${MGU_SSH_KEY:-}" ]]; then
-  KEY="${MGU_SSH_KEY/#\\~/$HOME}"
+  KEY="${MGU_SSH_KEY/#\~/$HOME}"
   [[ -f "$KEY" ]] || { echo "SSH identity file not found: $KEY" >&2; exit 1; }
   SSH_OPTS+=(-i "$KEY")
   SCP_OPTS+=(-i "$KEY")
