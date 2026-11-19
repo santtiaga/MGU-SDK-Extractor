@@ -31,11 +31,12 @@ chmod +x scripts/extract-mgu-sdk.sh
 
 Requirements on macOS: `ssh`, `scp`, and Python 3.
 
-The result is saved under `mgu-sdk/sdk-donor-<timestamp>/`:
+The result is saved under `mgu-sdk/sdk-extract-<timestamp>/`:
 
 - `sdk-donor.js` — selected Browserify SDK donor bundle.
 - `oap-sdk/` — generated SDK module (`index.js` and `package.json`).
-- `sdk-donor-response.json` — raw JSON response from the MGU deploy tool.
+- `sdk-donor-response.json` — raw JSON response when the MGU deploy donor interface succeeds.
+- `x_call/` — downloaded source archive and unpacked files when the fallback method is used.
 - `README.txt` — extraction metadata.
 
 ## Requirements and failure cases
