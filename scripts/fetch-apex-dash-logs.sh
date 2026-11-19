@@ -26,11 +26,11 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 # plus known renderer and system log locations. Do not collect app databases.
 for ROOT in /var/opt/public/oap /var/opt/cluster-render /var/log; do
   [ -d "$ROOT" ] || continue
-  find "$ROOT" -type f \\( \
+  find "$ROOT" -type f \( \
     -iname '*.log' -o -iname '*.log.[0-9]*' -o -iname '*.log.*' -o \
     -iname '*.out' -o -iname '*.err' -o \
     -iname 'apex_dash*' -o -iname 'apex-dash*' \
-  \\) -print 2>/dev/null >> "$TMP/manifest" || true
+  \) -print 2>/dev/null >> "$TMP/manifest" || true
 done
 # Include systemd journal exports when available, filtered to relevant services.
 if command -v journalctl >/dev/null 2>&1; then
