@@ -18,8 +18,9 @@ ARCHIVE="$OUTDIR/apex-dash-old-logs-$STAMP.tar.gz"
 echo "Connecting to $HOST and locating existing Apex Dash logs..."
 ssh "${SSH_OPTS[@]}" "$HOST" "sh -s" > "$ARCHIVE" <<'REMOTE'
 set -eu
-TMP="/tmp/apex-dash-old-logs-$$"
+TMP="/tmp/apex-dash-old-logs-$"
 mkdir -p "$TMP/files"
+trap 'rm -rf "$TMP"' EXIT
 : > "$TMP/manifest"
 # Search only application and logging locations; match Apex Dash-specific
 # filenames and log files inside directories explicitly named for Apex Dash.
@@ -51,8 +52,10 @@ RC=$?
 rm -rf "$TMP"
 exit "$RC"
 REMOTE
-RC=$?
-if [[ $RC -ne 0 ]]; then
+then
+  :
+else
+  RC=$?
   rm -f "$ARCHIVE"
   echo "Could not collect Apex Dash logs (remote exit $RC)." >&2
   exit "$RC"
