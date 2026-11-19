@@ -6,7 +6,8 @@ A macOS desktop utility for inspecting and collecting data from BMW iDrive 7 / M
 
 - **Find MGU** — discovers the ENET gateway via UDP 6811.
 - **Diagnostic capture** — collects renderer, DCSM2, OAP and system logs into a local archive.
-- **SDK donor extraction** — uses the installed MGU deploy tool's `sdk-donor` interface.
+- **Download all old Apex Dash logs** — retrieves existing OAP/app and renderer log files plus relevant journal entries without deleting them.
+- **SDK extraction** — prefers the MGU deploy tool's `sdk-donor` interface and falls back to the stock `x_call` app bundle when that interface is unavailable.
 - **Get lists** — retrieves the x_call bundle, reconstructs `oap-sdk` locally, captures system/SOME-IP information and builds an asset path index.
 - **Download assets** — downloads resources referenced by the latest successful asset index, preserving their root filesystem paths.
 
