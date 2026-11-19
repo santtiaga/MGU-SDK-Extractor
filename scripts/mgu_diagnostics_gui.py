@@ -424,6 +424,10 @@ class App:
         self.port_scan_busy = True
         self.port_scan_btn.configure(state="disabled")
         self.detect_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
+        self.extract_btn.configure(state="disabled")
+        self.get_lists_btn.configure(state="disabled")
+        self.download_assets_btn.configure(state="disabled")
         self._set_status("Scanning TCP ports 1–65535 · identifying SSH", AMBER)
         self._append("\n[port scan] Scanning %s, TCP 1–65535. Open ports will be checked for an SSH banner.\n" % target)
 
@@ -451,7 +455,7 @@ class App:
                         if result:
                             found.append(result)
                         if completed % 8192 == 0:
-                            self.events.put(("line", "[port scan] Checked %d / 65535 ports...\\n" % completed))
+                            self.events.put(("line", "[port scan] Checked %d / 65535 ports...\n" % completed))
                 self.events.put(("port_scan_done", (target, sorted(found), None)))
             except Exception as exc:
                 self.events.put(("port_scan_done", (target, sorted(found), str(exc))))
@@ -464,30 +468,34 @@ class App:
         self.port_scan_busy = False
         self.port_scan_btn.configure(state="normal")
         self.detect_btn.configure(state="normal")
+        self.start_btn.configure(state="normal")
+        self.extract_btn.configure(state="normal")
+        self.get_lists_btn.configure(state="normal")
+        self.download_assets_btn.configure(state="normal" if self.full_output_dir else "disabled")
         if error:
-            self._append("[port scan] ERROR: %s\\n" % error)
+            self._append("[port scan] ERROR: %s\n" % error)
         if not found:
-            self._append("[port scan] No TCP ports accepted a connection on %s.\\n" % target)
+            self._append("[port scan] No TCP ports accepted a connection on %s.\n" % target)
             self._set_status("No open TCP ports found", AMBER)
             return
         ssh_ports = []
-        self._append("[port scan] Open TCP ports on %s: %d\\n" % (target, len(found)))
+        self._append("[port scan] Open TCP ports on %s: %d\n" % (target, len(found)))
         for port, banner, _ in found:
             if banner.startswith("SSH-"):
                 ssh_ports.append(port)
-                self._append("  %5d/tcp  SSH  %s\\n" % (port, banner))
+                self._append("  %5d/tcp  SSH  %s\n" % (port, banner))
             elif banner:
-                self._append("  %5d/tcp  OPEN  %s\\n" % (port, banner[:100]))
+                self._append("  %5d/tcp  OPEN  %s\n" % (port, banner[:100]))
             else:
-                self._append("  %5d/tcp  OPEN  no banner / service waits for client\\n" % port)
+                self._append("  %5d/tcp  OPEN  no banner / service waits for client\n" % port)
         if ssh_ports:
             selected = ssh_ports[0]
             self.ssh_port.set(str(selected))
-            self._append("[port scan] SSH detected on %s. SSH port field set to %d.\\n" %
+            self._append("[port scan] SSH detected on %s. SSH port field set to %d.\n" %
                          (", ".join(str(p) for p in ssh_ports), selected))
             self._set_status("SSH service found · port %d" % selected, GREEN)
         else:
-            self._append("[port scan] No SSH banner found. Open ports are listed above.\\n")
+            self._append("[port scan] No SSH banner found. Open ports are listed above.\n")
             self._set_status("Open ports found · SSH not identified", AMBER)
 
     def detect_mgu(self):
