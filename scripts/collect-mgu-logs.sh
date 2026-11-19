@@ -122,16 +122,16 @@ for F in /var/opt/cluster-render/log/cluster-render.log /var/log/cluster-render.
   if [ -f "$F" ] && command -v tail >/dev/null 2>&1; then
     SAFE="$(echo "$F" | sed 's#/#_#g')"
     tail -n 0 -F "$F" > "$BASE/logs/$SAFE.live" 2>&1 &
-    PIDS="$PIDS $!"
+    PIDS="$PIDS $(jobs -p | tail -n 1)"
   fi
 done
 
 if command -v journalctl >/dev/null 2>&1; then
   journalctl -f -u cluster-render.service --no-pager > "$BASE/logs/cluster-render-journal.live" 2>&1 &
-  PIDS="$PIDS $!"
+  PIDS="$PIDS $(jobs -p | tail -n 1)"
   # Keep a complete live journal stream: the OAP app unit name varies by install.
   journalctl -f --no-pager > "$BASE/logs/system-journal.live" 2>&1 &
-  PIDS="$PIDS $!"
+  PIDS="$PIDS $(jobs -p | tail -n 1)"
 fi
 
 # Time series: renderer status, process state, memory and socket presence.
