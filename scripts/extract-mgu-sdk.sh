@@ -15,7 +15,6 @@ fi
 command -v ssh >/dev/null || { echo "ssh not found." >&2; exit 1; }
 command -v scp >/dev/null || { echo "scp not found." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required." >&2; exit 1; }
-command -v node >/dev/null || { echo "Node.js is required to reconstruct oap-sdk." >&2; exit 1; }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTDIR="$ROOT/mgu-sdk"
@@ -91,6 +90,7 @@ fi
 
 # If the donor interface did not produce both files, rebuild from the stock x_call app.
 if [[ ! -s "$DEST/sdk-donor.js" || ! -s "$DEST/oap-sdk/index.js" ]]; then
+  command -v node >/dev/null || { echo "Node.js is required only for the x_call fallback method." >&2; exit 1; }
   echo "[sdk] Locating a preinstalled x_call archive ..."
   REMOTE_TGZ="$(ssh "${SSH_OPTS[@]}" "$HOST" '
     for D in /usr/lib/oap-mainapp/preinstalled_apps /usr/lib/oap-mainapp21/preinstalled_apps; do
