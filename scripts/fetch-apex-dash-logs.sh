@@ -26,11 +26,11 @@ trap 'rm -rf "$TMP"' EXIT
 # filenames and log files inside directories explicitly named for Apex Dash.
 for ROOT in /var/opt/public/oap /var/opt/cluster-render /var/log /tmp /var/tmp; do
   [ -d "$ROOT" ] || continue
-  find "$ROOT" -type f \\( \
+  find "$ROOT" -type f \( \
     -iname 'apex_dash.log*' -o -iname 'apex-dash.log*' -o \
     -iname '*apex*dash*.log*' -o \
-    -path '*/apex*dash/*' -a \\( -iname '*.log*' -o -iname '*.out' -o -iname '*.err' \\) \
-  \\) -print 2>/dev/null >> "$TMP/manifest" || true
+    -path '*/apex*dash/*' -a \( -iname '*.log*' -o -iname '*.out' -o -iname '*.err' \) \
+  \) -print 2>/dev/null >> "$TMP/manifest" || true
 done
 sort -u "$TMP/manifest" -o "$TMP/manifest"
 if [ ! -s "$TMP/manifest" ]; then
