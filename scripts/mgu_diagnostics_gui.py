@@ -72,6 +72,8 @@ class App:
         self.sdk_busy = False
         self.full_busy = False
         self.download_busy = False
+        self.old_logs_busy = False
+        self.old_logs_process = None
         self.full_output_dir = None
         self.full_output_host = None
         self.busy = False
@@ -227,6 +229,7 @@ class App:
                                               style="Ghost.TButton", command=self.download_assets,
                                               state="disabled")
         self.download_assets_btn.pack(fill="x", pady=(7, 0))
+        self.old_logs_btn = ttk.Button(body, text="Download all old Apex Dash logs",\n                                      style="Ghost.TButton", command=self.download_old_logs)\n        self.old_logs_btn.pack(fill="x", pady=(7, 0))
 
         loghdr = tk.Frame(body, bg=BG)
         loghdr.pack(fill="x", pady=(18, 7))
@@ -292,6 +295,8 @@ class App:
                     self._full_finished(payload)
                 elif kind == "download_done":
                     self._download_finished(payload)
+                elif kind == "old_logs_done":
+                    self._old_logs_finished(payload)
         except queue.Empty:
             pass
         self.root.after(100, self._drain)
@@ -421,7 +426,7 @@ class App:
         gateways, error = result
         self.discovery_busy = False
         self.detect_btn.configure(state="normal")
-        self.start_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
+        self.start_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy or self.old_logs_busy else "disabled")
         self.extract_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
         self.get_lists_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
         self.download_assets_btn.configure(state="normal" if self.full_output_dir and not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
@@ -700,6 +705,70 @@ class App:
         self.download_worker = threading.Thread(target=run, daemon=True)
         self.download_worker.start()
 
+    def download_old_logs(self):
+        if self.busy or self.discovery_busy or self.sdk_busy or self.full_busy or self.download_busy or self.old_logs_busy:
+            return
+        host = self.host.get().strip()
+        if not host or host == "root@":
+            messagebox.showerror("SSH target required", "Find the MGU or enter root@MGU-IP / an SSH host alias.")
+            return
+        if any(ch.isspace() for ch in host):
+            messagebox.showerror("Invalid SSH target", "Use one SSH destination, without spaces.")
+            return
+        script = os.path.join(HERE, "fetch-apex-dash-logs.sh")
+        if not os.path.isfile(script):
+            messagebox.showerror("Log downloader not found", "Expected scripts/fetch-apex-dash-logs.sh next to this GUI.")
+            return
+        self.old_logs_busy = True
+        self.old_logs_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
+        self.detect_btn.configure(state="disabled")
+        self.extract_btn.configure(state="disabled")
+        self.get_lists_btn.configure(state="disabled")
+        self.download_assets_btn.configure(state="disabled")
+        self._set_status("Downloading historical Apex Dash logs", AMBER)
+        self._append("\\n[old logs] Searching MGU for existing Apex Dash log files...\\n")
+        ssh_env = self._ssh_env()
+
+        def run():
+            try:
+                self.old_logs_process = subprocess.Popen(
+                    ["bash", script, host], cwd=ROOT, env=ssh_env,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                    universal_newlines=True)
+                for line in self.old_logs_process.stdout:
+                    self.events.put(("line", line))
+                code = self.old_logs_process.wait()
+                self.events.put(("old_logs_done", (code, None)))
+            except Exception as exc:
+                self.events.put(("old_logs_done", (1, str(exc))))
+
+        self.old_logs_worker = threading.Thread(target=run, daemon=True)
+        self.old_logs_worker.start()
+
+    def _old_logs_finished(self, result):
+        code, error = result
+        self.old_logs_busy = False
+        self.old_logs_process = None
+        self.old_logs_btn.configure(state="normal")
+        self.start_btn.configure(state="normal")
+        self.detect_btn.configure(state="normal")
+        self.extract_btn.configure(state="normal")
+        self.get_lists_btn.configure(state="normal")
+        self.download_assets_btn.configure(state="normal" if self.full_output_dir else "disabled")
+        if error:
+            self._append("[old logs] ERROR: %s\\n" % error)
+        if code == 0:
+            self._set_status("Historical Apex Dash logs downloaded", GREEN)
+            self._append("[old logs] Archive saved in mgu-diagnostics.\\n")
+        elif code == 4:
+            self._set_status("No historical Apex Dash logs found", AMBER)
+            self._append("[old logs] No matching log files were found in the searched MGU locations.\\n")
+        else:
+            self._set_status("Historical log download failed", RED)
+            self._append("[old logs] Downloader exited with code %s.\\n" % code)
+
     def _download_finished(self, result):
         code, error = result
         self.download_busy = False
@@ -740,7 +809,7 @@ class App:
             messagebox.showinfo("SDK output folder", "%s\n\n%s" % (SDK_OUTDIR, exc))
 
     def _close(self):
-        if self.busy or self.sdk_busy or self.full_busy or self.download_busy:
+        if self.busy or self.sdk_busy or self.full_busy or self.download_busy or self.old_logs_busy:
             if not messagebox.askyesno(
                 "Capture is running",
                 "Closing will terminate the active SSH operation. Temporary data may remain on the MGU. Close anyway?"):
@@ -753,6 +822,8 @@ class App:
                 self.full_process.terminate()
             if self.download_process and self.download_process.poll() is None:
                 self.download_process.terminate()
+            if self.old_logs_process and self.old_logs_process.poll() is None:
+                self.old_logs_process.terminate()
         self.root.destroy()
 
 
