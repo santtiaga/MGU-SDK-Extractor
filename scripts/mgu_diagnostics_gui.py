@@ -7,6 +7,8 @@ flash, configure, restart or otherwise modify the head unit.
 """
 import os
 import queue
+import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
 import sys
 import threading
@@ -78,6 +80,7 @@ class App:
         self.full_output_host = None
         self.busy = False
         self.discovery_busy = False
+        self.port_scan_busy = False
         self.detected_gateway = None
         self.session_log = None
         self.archive_path = None
@@ -236,6 +239,9 @@ class App:
         self.old_logs_btn = ttk.Button(body, text="Download all old Apex Dash logs",
                                        style="Ghost.TButton", command=self.download_old_logs)
         self.old_logs_btn.pack(fill="x", pady=(7, 0))
+        self.port_scan_btn = ttk.Button(body, text="Scan TCP ports · find SSH service",
+                                        style="Ghost.TButton", command=self.scan_ssh_ports)
+        self.port_scan_btn.pack(fill="x", pady=(7, 0))
 
         loghdr = tk.Frame(body, bg=BG)
         loghdr.pack(fill="x", pady=(18, 7))
@@ -293,6 +299,8 @@ class App:
                     self._finish(payload)
                 elif kind == "discover_done":
                     self._discovery_finished(payload)
+                elif kind == "port_scan_done":
+                    self._port_scan_finished(payload)
                 elif kind == "key_search_done":
                     self._key_search_finished(payload)
                 elif kind == "sdk_done":
@@ -401,6 +409,86 @@ class App:
         ttk.Button(buttons, text="Cancel", style="Ghost.TButton",
                    command=dialog.destroy).pack(side="right", padx=(0, 8))
         listing.bind("<Double-Button-1>", lambda _event: choose())
+
+    def scan_ssh_ports(self):
+        if (self.busy or self.discovery_busy or self.sdk_busy or self.full_busy
+                or self.download_busy or self.old_logs_busy or self.port_scan_busy):
+            return
+        target = self.host.get().strip()
+        if target.startswith("root@"):
+            target = target[5:]
+        if not target or any(ch.isspace() for ch in target):
+            messagebox.showerror("MGU target required",
+                                 "Enter root@MGU-IP or an MGU hostname first.")
+            return
+        self.port_scan_busy = True
+        self.port_scan_btn.configure(state="disabled")
+        self.detect_btn.configure(state="disabled")
+        self._set_status("Scanning TCP ports 1–65535 · identifying SSH", AMBER)
+        self._append("\n[port scan] Scanning %s, TCP 1–65535. Open ports will be checked for an SSH banner.\n" % target)
+
+        def probe(port):
+            try:
+                with socket.create_connection((target, port), timeout=0.35) as conn:
+                    conn.settimeout(0.45)
+                    try:
+                        banner = conn.recv(256).decode("ascii", "replace").strip()
+                    except (socket.timeout, OSError):
+                        banner = ""
+                    return (port, banner, None)
+            except OSError:
+                return None
+
+        def run():
+            found = []
+            try:
+                with ThreadPoolExecutor(max_workers=256) as pool:
+                    futures = [pool.submit(probe, port) for port in range(1, 65536)]
+                    completed = 0
+                    for future in as_completed(futures):
+                        result = future.result()
+                        completed += 1
+                        if result:
+                            found.append(result)
+                        if completed % 8192 == 0:
+                            self.events.put(("line", "[port scan] Checked %d / 65535 ports...\\n" % completed))
+                self.events.put(("port_scan_done", (target, sorted(found), None)))
+            except Exception as exc:
+                self.events.put(("port_scan_done", (target, sorted(found), str(exc))))
+
+        self.port_scan_worker = threading.Thread(target=run, daemon=True)
+        self.port_scan_worker.start()
+
+    def _port_scan_finished(self, result):
+        target, found, error = result
+        self.port_scan_busy = False
+        self.port_scan_btn.configure(state="normal")
+        self.detect_btn.configure(state="normal")
+        if error:
+            self._append("[port scan] ERROR: %s\\n" % error)
+        if not found:
+            self._append("[port scan] No TCP ports accepted a connection on %s.\\n" % target)
+            self._set_status("No open TCP ports found", AMBER)
+            return
+        ssh_ports = []
+        self._append("[port scan] Open TCP ports on %s: %d\\n" % (target, len(found)))
+        for port, banner, _ in found:
+            if banner.startswith("SSH-"):
+                ssh_ports.append(port)
+                self._append("  %5d/tcp  SSH  %s\\n" % (port, banner))
+            elif banner:
+                self._append("  %5d/tcp  OPEN  %s\\n" % (port, banner[:100]))
+            else:
+                self._append("  %5d/tcp  OPEN  no banner / service waits for client\\n" % port)
+        if ssh_ports:
+            selected = ssh_ports[0]
+            self.ssh_port.set(str(selected))
+            self._append("[port scan] SSH detected on %s. SSH port field set to %d.\\n" %
+                         (", ".join(str(p) for p in ssh_ports), selected))
+            self._set_status("SSH service found · port %d" % selected, GREEN)
+        else:
+            self._append("[port scan] No SSH banner found. Open ports are listed above.\\n")
+            self._set_status("Open ports found · SSH not identified", AMBER)
 
     def detect_mgu(self):
         if self.busy or self.discovery_busy or self.sdk_busy or self.full_busy or self.download_busy:
