@@ -184,9 +184,12 @@ class App:
                     font=(UI, 9)).grid(row=2, column=0, sticky="w", padx=(0, 10), pady=(9, 0))
         self._entry(conn, self.ssh_key, 44).grid(
             row=2, column=1, columnspan=2, sticky="ew", ipady=4, pady=(9, 0))
+        self.find_key_btn = ttk.Button(conn, text="Find root key on disk",
+                                          style="Ghost.TButton", command=self.find_root_key)
+        self.find_key_btn.grid(row=2, column=3, padx=(8, 0), pady=(9, 0), sticky="w")
         self._label(conn, "Example: ~/.ssh/mgu_root_key · leave empty to use ssh-agent/config",
                     bg=PANEL, fg=MUTED, font=(UI, 8)).grid(
-            row=3, column=1, columnspan=2, sticky="w", pady=(4, 0))
+            row=3, column=1, columnspan=3, sticky="w", pady=(4, 0))
 
         tk.Frame(inner, bg=LINE_SOFT, height=1).pack(fill="x", pady=15)
         self._section(inner, "CAPTURE WINDOW", AMBER).pack(fill="x")
@@ -281,6 +284,8 @@ class App:
                     self._finish(payload)
                 elif kind == "discover_done":
                     self._discovery_finished(payload)
+                elif kind == "key_search_done":
+                    self._key_search_finished(payload)
                 elif kind == "sdk_done":
                     self._sdk_finished(payload)
                 elif kind == "full_done":
@@ -290,6 +295,101 @@ class App:
         except queue.Empty:
             pass
         self.root.after(100, self._drain)
+
+    def find_root_key(self):
+        if self.discovery_busy or self.busy or self.sdk_busy or self.full_busy or self.download_busy:
+            return
+        self.find_key_btn.configure(state="disabled")
+        self._set_status("Searching local disk for MGU SSH keys", AMBER)
+        self._append("\n[key search] Scanning your home folder for likely MGU/root SSH private keys...\\n")
+
+        def run():
+            home = os.path.expanduser("~")
+            skip_dirs = {
+                ".Trash", ".cache", ".npm", ".cargo", ".rustup", ".local",
+                "node_modules", ".git", "Library", "Pictures", "Music",
+                "Movies", "Applications", "Virtual Machines",
+            }
+            candidates = []
+            scanned = 0
+            for current, dirs, files in os.walk(home):
+                dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".") or d == ".ssh"]
+                for name in files:
+                    lower = name.lower()
+                    likely_name = (
+                        ("mgu" in lower and ("key" in lower or "root" in lower))
+                        or lower in ("id_rsa", "id_ed25519", "id_ecdsa")
+                        or (current.endswith(os.sep + ".ssh") and "key" in lower)
+                    )
+                    if not likely_name:
+                        continue
+                    path = os.path.join(current, name)
+                    try:
+                        if not os.path.isfile(path) or os.path.islink(path):
+                            continue
+                        with open(path, "rb") as stream:
+                            header = stream.read(256)
+                        if (b"PRIVATE KEY" in header or b"openssh-key-v1" in header
+                                or lower in ("id_rsa", "id_ed25519", "id_ecdsa")):
+                            candidates.append(path)
+                    except (OSError, PermissionError):
+                        continue
+                scanned += 1
+                if scanned % 500 == 0:
+                    self.events.put(("line", "[key search] Scanned %d folders...\\n" % scanned))
+            self.events.put(("key_search_done", candidates))
+
+        self.key_search_worker = threading.Thread(target=run, daemon=True)
+        self.key_search_worker.start()
+
+    def _key_search_finished(self, candidates):
+        self.find_key_btn.configure(state="normal")
+        if not candidates:
+            self._append("[key search] No likely SSH private keys found in your home folder.\\n")
+            self._set_status("No local SSH key found", AMBER)
+            return
+        self._append("[key search] Found %d possible key file(s):\\n" % len(candidates))
+        for path in candidates:
+            self._append("  " + path + "\\n")
+        if len(candidates) == 1:
+            selected = candidates[0]
+            if messagebox.askyesno("MGU root key found",
+                                   "Use this key for the SSH connection?\\n\\n" + selected):
+                self.ssh_key.set(selected)
+                self._set_status("SSH identity selected", GREEN)
+            else:
+                self._set_status("Key found · selection unchanged", MUTED)
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select MGU SSH key")
+        dialog.configure(bg=PANEL)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        tk.Label(dialog, text="Choose the private key to use for the MGU connection:",
+                 bg=PANEL, fg=TEXT, font=(UI, 10)).pack(anchor="w", padx=14, pady=(14, 8))
+        listing = tk.Listbox(dialog, width=88, height=min(12, len(candidates)),
+                             bg=FIELD, fg=TEXT, selectbackground=ACCENT,
+                             font=(MONO, 9), relief="flat")
+        for path in candidates:
+            listing.insert("end", path)
+        listing.pack(fill="both", expand=True, padx=14, pady=4)
+
+        def choose():
+            selection = listing.curselection()
+            if not selection:
+                return
+            self.ssh_key.set(candidates[selection[0]])
+            self._set_status("SSH identity selected", GREEN)
+            dialog.destroy()
+
+        buttons = tk.Frame(dialog, bg=PANEL)
+        buttons.pack(fill="x", padx=14, pady=12)
+        ttk.Button(buttons, text="Use selected key", style="Ghost.TButton",
+                   command=choose).pack(side="right")
+        ttk.Button(buttons, text="Cancel", style="Ghost.TButton",
+                   command=dialog.destroy).pack(side="right", padx=(0, 8))
+        listing.bind("<Double-Button-1>", lambda _event: choose())
 
     def detect_mgu(self):
         if self.busy or self.discovery_busy or self.sdk_busy or self.full_busy or self.download_busy:
