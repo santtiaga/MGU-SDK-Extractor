@@ -1,56 +1,50 @@
 #!/usr/bin/env bash
-# Extract the BMW OAP SDK donor from an MGU over SSH.
-# Usage: ./scripts/extract-mgu-sdk.sh root@MGU-IP
+# Extract the BMW OAP SDK from an MGU over SSH.
+# Prefer mgu-deploy's stock SDK donor; fall back to the x_call Browserify bundle.
 set -euo pipefail
-
-if [[ $# -ne 1 || -z "$1" ]]; then
-  echo "Usage: $0 root@MGU-IP" >&2
-  exit 2
-fi
+[[ $# -eq 1 && -n "$1" ]] || { echo "Usage: $0 root@MGU-IP" >&2; exit 2; }
 HOST="$1"
 SSH_OPTS=(-T -o BatchMode=yes -o ConnectTimeout=10)
 SCP_OPTS=(-O -o BatchMode=yes -o ConnectTimeout=10)
 if [[ -n "${MGU_SSH_KEY:-}" ]]; then
-  KEY="${MGU_SSH_KEY/#\~/$HOME}"
+  KEY="${MGU_SSH_KEY/#\\~/$HOME}"
   [[ -f "$KEY" ]] || { echo "SSH identity file not found: $KEY" >&2; exit 1; }
   SSH_OPTS+=(-i "$KEY")
   SCP_OPTS+=(-i "$KEY")
 fi
 command -v ssh >/dev/null || { echo "ssh not found." >&2; exit 1; }
 command -v scp >/dev/null || { echo "scp not found." >&2; exit 1; }
-command -v python3 >/dev/null || { echo "python3 is required on the Mac to parse sdk-donor metadata." >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required." >&2; exit 1; }
+command -v node >/dev/null || { echo "Node.js is required to reconstruct oap-sdk." >&2; exit 1; }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTDIR="$ROOT/mgu-sdk"
 STAMP="$(date '+%Y%m%d-%H%M%S')"
-DEST="$OUTDIR/sdk-donor-$STAMP"
+DEST="$OUTDIR/sdk-extract-$STAMP"
 mkdir -p "$DEST"
-META="$(mktemp -t mgu-sdk-donor)"
-trap 'rm -f "$META"' EXIT
+META="$(mktemp -t mgu-sdk-meta)"
+FIELDS="$(mktemp -t mgu-sdk-fields)"
+trap 'rm -f "$META" "$FIELDS"' EXIT
 
-echo "[sdk] Requesting the stock SDK donor from $HOST ..."
-echo "[sdk] Running mgu-deploy.sh sdk-donor --json (read-only command; writes its cache under /run)."
-if ! ssh "${SSH_OPTS[@]}" "$HOST" '
+echo "[sdk] Connecting to $HOST ..."
+# First try the MGU deploy tool's canonical SDK donor interface.
+if ssh "${SSH_OPTS[@]}" "$HOST" '
   if command -v mgu-deploy.sh >/dev/null 2>&1; then
     mgu-deploy.sh sdk-donor --json
   elif [ -x /var/opt/mgu-deploy/mgu-deploy.sh ]; then
     /var/opt/mgu-deploy/mgu-deploy.sh sdk-donor --json
+  elif [ -x /var/opt/mgu-deploy/current/deploy/unit/mgu-deploy.sh ]; then
+    /var/opt/mgu-deploy/current/deploy/unit/mgu-deploy.sh sdk-donor --json
   else
-    echo "mgu-deploy.sh not found; install/update the MGU deploy tool first." >&2
+    echo "mgu-deploy.sh not found" >&2
     exit 127
   fi
-' >"$META"; then
-  echo "[sdk] Extraction command failed. Check that mgu-deploy is installed and that the unit has a stock SDK donor." >&2
-  exit 1
-fi
-
-FIELDS="$(python3 - "$META" <<'PY'
-import json
-import sys
-
-raw = open(sys.argv[1], "r", encoding="utf-8").read()
-data = None
+' > "$META"; then
+  if python3 - "$META" > "$FIELDS" <<'PY'
+import json, sys
+raw = open(sys.argv[1], encoding="utf-8").read()
 decoder = json.JSONDecoder()
+data = None
 for i, ch in enumerate(raw):
     if ch != "{":
         continue
@@ -61,54 +55,72 @@ for i, ch in enumerate(raw):
     if isinstance(candidate, dict) and "path" in candidate and "module" in candidate:
         data = candidate
         break
-if data is None:
-    raise SystemExit("Could not find sdk-donor JSON with path and module fields.")
-bundle = data["path"]
-module = data["module"]
+if not data:
+    raise SystemExit(1)
 prefix = "/run/mgu-deploy/sdk-donor/"
-for label, value in (("path", bundle), ("module", module)):
+for key in ("path", "module"):
+    value = data.get(key)
     if not isinstance(value, str) or not value.startswith(prefix) or ".." in value.split("/"):
-        raise SystemExit("Unsafe or unexpected remote %s path: %r" % (label, value))
-print(bundle)
-print(module)
+        raise SystemExit(1)
+print(data["path"])
+print(data["module"])
 print(data.get("donor") or "")
 print(data.get("sdkVersion") or "")
 PY
-)" || {
-  echo "[sdk] Invalid metadata returned by mgu-deploy.sh:" >&2
-  cat "$META" >&2
-  exit 1
-}
-BUNDLE="$(printf '%s\n' "$FIELDS" | sed -n '1p')"
-MODULE="$(printf '%s\n' "$FIELDS" | sed -n '2p')"
-DONOR="$(printf '%s\n' "$FIELDS" | sed -n '3p')"
-SDK_VERSION="$(printf '%s\n' "$FIELDS" | sed -n '4p')"
+  then
+    BUNDLE="$(sed -n '1p' "$FIELDS")"
+    MODULE="$(sed -n '2p' "$FIELDS")"
+    DONOR="$(sed -n '3p' "$FIELDS")"
+    SDK_VERSION="$(sed -n '4p' "$FIELDS")"
+    echo "[sdk] Using mgu-deploy donor: ${DONOR:-unknown} (oap-sdk ${SDK_VERSION:-unknown})"
+    scp "${SCP_OPTS[@]}" "$HOST:$BUNDLE" "$DEST/sdk-donor.js"
+    scp "${SCP_OPTS[@]}" -r "$HOST:$MODULE" "$DEST/oap-sdk"
+    cp "$META" "$DEST/sdk-donor-response.json"
+    METHOD="mgu-deploy sdk-donor"
+  else
+    echo "[sdk] mgu-deploy returned unrecognized metadata; trying x_call fallback."
+  fi
+else
+  echo "[sdk] mgu-deploy SDK donor unavailable; trying x_call fallback."
+fi
 
-echo "[sdk] Donor: ${DONOR:-unknown}"
-echo "[sdk] SDK version: ${SDK_VERSION:-unknown}"
-echo "[sdk] Downloading Browserify bundle..."
-scp "${SCP_OPTS[@]}" "$HOST:$BUNDLE" "$DEST/sdk-donor.js"
-echo "[sdk] Downloading generated oap-sdk module..."
-scp "${SCP_OPTS[@]}" -r "$HOST:$MODULE" "$DEST/oap-sdk"
-cp "$META" "$DEST/sdk-donor-response.json"
+# If the donor interface did not produce both files, rebuild from the stock x_call app.
+if [[ ! -s "$DEST/sdk-donor.js" || ! -s "$DEST/oap-sdk/index.js" ]]; then
+  echo "[sdk] Locating a preinstalled x_call archive ..."
+  REMOTE_TGZ="$(ssh "${SSH_OPTS[@]}" "$HOST" '
+    for D in /usr/lib/oap-mainapp/preinstalled_apps /usr/lib/oap-mainapp21/preinstalled_apps; do
+      [ -d "$D" ] && find "$D" -maxdepth 1 -type f -name "x_call@*.tgz" -print 2>/dev/null
+    done | sort | tail -n 1
+  ')"
+  [[ -n "$REMOTE_TGZ" ]] || {
+    echo "[sdk] No x_call@*.tgz found in either MainApp preinstalled_apps directory." >&2
+    echo "[sdk] The MGU also did not provide a usable mgu-deploy SDK donor." >&2
+    exit 1
+  }
+  mkdir -p "$DEST/x_call"
+  echo "[sdk] Downloading $REMOTE_TGZ ..."
+  scp "${SCP_OPTS[@]}" "$HOST:$REMOTE_TGZ" "$DEST/x_call/"
+  ARCHIVE="$DEST/x_call/$(basename "$REMOTE_TGZ")"
+  mkdir -p "$DEST/x_call/unpacked"
+  tar -xzf "$ARCHIVE" -C "$DEST/x_call/unpacked"
+  APP_JS="$(find "$DEST/x_call/unpacked" -type f -path '*/javascript/app.js' -print -quit)"
+  [[ -n "$APP_JS" ]] || { echo "[sdk] x_call archive has no javascript/app.js." >&2; exit 1; }
+  cp "$APP_JS" "$DEST/sdk-donor.js"
+  node "$ROOT/scripts/extract_sdk.js" "$APP_JS" "$DEST/oap-sdk"
+  METHOD="x_call fallback"
+fi
+
 cat > "$DEST/README.txt" <<EOF
-BMW MGU OAP SDK donor
+BMW MGU OAP SDK extraction
 Extracted: $(date)
 SSH target: $HOST
-Donor: ${DONOR:-unknown}
-SDK version: ${SDK_VERSION:-unknown}
+Method: $METHOD
 
-sdk-donor.js is the Browserify donor bundle returned by:
-  mgu-deploy.sh sdk-donor --json
-
-oap-sdk/ is the generated public oap-sdk module returned by the same command.
-The original JSON response is in sdk-donor-response.json.
-
-Treat these files as BMW-provided SDK material. Keep them local and do not
-commit or publish them unless you have confirmed the applicable permissions.
+sdk-donor.js is the Browserify bundle used to reconstruct the SDK.
+oap-sdk/ contains the reconstructed module (index.js, package.json and source/).
+Keep BMW-provided SDK material local and do not redistribute without permission.
 EOF
-
 echo
-echo "[sdk] Complete:"
+echo "[sdk] Complete ($METHOD):"
 echo "  $DEST"
-echo "[sdk] Files: sdk-donor.js, oap-sdk/, sdk-donor-response.json"
+echo "[sdk] Files: sdk-donor.js, oap-sdk/, README.txt"
