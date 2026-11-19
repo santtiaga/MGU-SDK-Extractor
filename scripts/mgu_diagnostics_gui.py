@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
 import mgu_discovery
+import mgu_hsfz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -92,7 +93,7 @@ class App:
 
         self.host = tk.StringVar(value="root@")
         self.ssh_key = tk.StringVar(value="")
-        self.ssh_port = tk.StringVar(value="6811")
+        self.ssh_port = tk.StringVar(value="22")
         self.duration = tk.StringVar(value="600")
         self.keep_remote = tk.BooleanVar(value=False)
 
@@ -186,7 +187,7 @@ class App:
         self._label(conn, "SSH port", bg=PANEL, fg=TEXT, font=(UI, 9)).grid(
             row=0, column=3, sticky="e", padx=(14, 6))
         self._entry(conn, self.ssh_port, 7).grid(row=0, column=4, sticky="w", ipady=5)
-        self._label(conn, "Finds the ENET gateway via UDP 6811; detected IP is inserted as root@IP.",
+        self._label(conn, "UDP 6811 finds ZGW; TCP 6801 reads MGU IP (UDS 0x172A); SSH uses TCP 22.",
                     bg=PANEL, fg=MUTED, font=(UI, 8)).grid(
             row=1, column=1, columnspan=4, sticky="w", pady=(5, 0))
         self._label(conn, "SSH identity (optional)", bg=PANEL, fg=TEXT,
@@ -517,15 +518,24 @@ class App:
             try:
                 gateways = mgu_discovery.discover(
                     timeout_ms=700, overall_ms=3500, log=log)
-                self.events.put(("discover_done", (gateways, None)))
+                resolved = []
+                for gw in gateways:
+                    try:
+                        addresses = mgu_hsfz.read_mgu_ip(gw.ip, log=log)
+                        resolved.append((gw, addresses, None))
+                    except Exception as exc:
+                        log("[discovery] Gateway %s found, but MGU IP read failed: %s" %
+                            (gw.ip, exc))
+                        resolved.append((gw, None, str(exc)))
+                self.events.put(("discover_done", (gateways, resolved, None)))
             except Exception as exc:
-                self.events.put(("discover_done", ([], str(exc))))
+                self.events.put(("discover_done", ([], [], str(exc))))
 
         self.discovery_worker = threading.Thread(target=run, daemon=True)
         self.discovery_worker.start()
 
     def _discovery_finished(self, result):
-        gateways, error = result
+        gateways, resolved, error = result
         self.discovery_busy = False
         self.detect_btn.configure(state="normal")
         self.start_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
@@ -533,30 +543,42 @@ class App:
         self.get_lists_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
         self.download_assets_btn.configure(state="normal" if self.full_output_dir and not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
         if error:
-            self._append("[discovery] ERROR: %s\n" % error)
+            self._append("[discovery] ERROR: %s\\n" % error)
             self._set_status("Discovery failed · see session log", RED)
             return
         if not gateways:
-            self._append("[discovery] No ENET gateway replied on UDP 6811.\n")
-            self._append("[discovery] Check ENET connection, adapter and vehicle power.\n")
-            self._set_status("No MGU/ENET gateway found", AMBER)
+            self._append("[discovery] No ENET gateway replied on UDP 6811.\\n")
+            self._append("[discovery] Check ENET connection, adapter and vehicle power.\\n")
+            self._set_status("No ENET gateway found", AMBER)
             return
 
         for gw in gateways:
-            self._append("[discovery] Found gateway %s%s\n" %
+            self._append("[discovery] Found ZGW %s%s\\n" %
                          (gw.ip, " · VIN " + gw.vin if gw.vin else ""))
-        selected = gateways[0]
+        successful = [item for item in resolved if item[1] is not None]
+        for gw, addresses, read_error in resolved:
+            if addresses:
+                mgu_ip, gateway_ip, route_ip = addresses
+                self._append("[discovery] UDS 0x172A: MGU=%s · ZGW=%s · route=%s\\n" %
+                             (mgu_ip, gateway_ip, route_ip))
+            else:
+                self._append("[discovery] Could not read MGU IP via %s: %s\\n" %
+                             (gw.ip, read_error or "no response"))
+        if not successful:
+            self._set_status("ZGW found · MGU IP read failed", AMBER)
+            return
+
+        selected, addresses, _ = successful[0]
         self.detected_gateway = selected.ip
-        current = self.host.get().strip()
-        if not current or current == "root@" or current == "root@" + (self.detected_gateway or ""):
-            self.host.set("root@" + selected.ip)
-        elif current.startswith("root@") and current[5:] in ("", selected.ip):
-            self.host.set("root@" + selected.ip)
-        self._append("[discovery] Selected %s. SSH target: %s\n" %
-                     (selected.ip, self.host.get().strip()))
-        if len(gateways) > 1:
-            self._append("[discovery] %d gateways replied; first response selected.\n" % len(gateways))
-        self._set_status("ENET gateway found · ready to connect", GREEN)
+        mgu_ip = addresses[0]
+        self.host.set("root@" + mgu_ip)
+        self.ssh_port.set("22")
+        self._append("[discovery] Selected MGU %s via ZGW %s. SSH target: %s:22\\n" %
+                     (mgu_ip, selected.ip, self.host.get().strip()))
+        if len(successful) > 1:
+            self._append("[discovery] %d MGU(s) resolved; first response selected.\\n" %
+                         len(successful))
+        self._set_status("MGU IP resolved · SSH TCP 22 ready", GREEN)
 
     def start(self):
         if self.busy or self.sdk_busy or self.discovery_busy or self.full_busy or self.download_busy:
