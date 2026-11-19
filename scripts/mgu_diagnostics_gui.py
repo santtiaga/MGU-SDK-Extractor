@@ -229,7 +229,9 @@ class App:
                                               style="Ghost.TButton", command=self.download_assets,
                                               state="disabled")
         self.download_assets_btn.pack(fill="x", pady=(7, 0))
-        self.old_logs_btn = ttk.Button(body, text="Download all old Apex Dash logs",\n                                      style="Ghost.TButton", command=self.download_old_logs)\n        self.old_logs_btn.pack(fill="x", pady=(7, 0))
+        self.old_logs_btn = ttk.Button(body, text="Download all old Apex Dash logs",
+                                       style="Ghost.TButton", command=self.download_old_logs)
+        self.old_logs_btn.pack(fill="x", pady=(7, 0))
 
         loghdr = tk.Frame(body, bg=BG)
         loghdr.pack(fill="x", pady=(18, 7))
@@ -727,7 +729,7 @@ class App:
         self.get_lists_btn.configure(state="disabled")
         self.download_assets_btn.configure(state="disabled")
         self._set_status("Downloading historical Apex Dash logs", AMBER)
-        self._append("\\n[old logs] Searching MGU for existing Apex Dash log files...\\n")
+        self._append("\n[old logs] Searching MGU for existing Apex Dash log files...\n")
         ssh_env = self._ssh_env()
 
         def run():
@@ -758,16 +760,16 @@ class App:
         self.get_lists_btn.configure(state="normal")
         self.download_assets_btn.configure(state="normal" if self.full_output_dir else "disabled")
         if error:
-            self._append("[old logs] ERROR: %s\\n" % error)
+            self._append("[old logs] ERROR: %s\n" % error)
         if code == 0:
             self._set_status("Historical Apex Dash logs downloaded", GREEN)
-            self._append("[old logs] Archive saved in mgu-diagnostics.\\n")
+            self._append("[old logs] Archive saved in mgu-diagnostics.\n")
         elif code == 4:
             self._set_status("No historical Apex Dash logs found", AMBER)
-            self._append("[old logs] No matching log files were found in the searched MGU locations.\\n")
+            self._append("[old logs] No matching log files were found in the searched MGU locations.\n")
         else:
             self._set_status("Historical log download failed", RED)
-            self._append("[old logs] Downloader exited with code %s.\\n" % code)
+            self._append("[old logs] Downloader exited with code %s.\n" % code)
 
     def _download_finished(self, result):
         code, error = result
