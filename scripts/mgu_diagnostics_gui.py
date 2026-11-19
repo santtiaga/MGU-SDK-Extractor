@@ -89,6 +89,7 @@ class App:
 
         self.host = tk.StringVar(value="root@")
         self.ssh_key = tk.StringVar(value="")
+        self.ssh_port = tk.StringVar(value="6811")
         self.duration = tk.StringVar(value="600")
         self.keep_remote = tk.BooleanVar(value=False)
 
@@ -175,23 +176,26 @@ class App:
         conn.pack(fill="x", pady=(10, 0))
         self._label(conn, "SSH target", bg=PANEL, fg=TEXT, font=(UI, 10)).grid(
             row=0, column=0, sticky="w", padx=(0, 10))
-        self._entry(conn, self.host, 32).grid(row=0, column=1, sticky="w", ipady=5)
+        self._entry(conn, self.host, 27).grid(row=0, column=1, sticky="w", ipady=5)
         self.detect_btn = ttk.Button(conn, text="Find MGU", style="Ghost.TButton",
                                       command=self.detect_mgu)
         self.detect_btn.grid(row=0, column=2, padx=(10, 0), sticky="w")
+        self._label(conn, "SSH port", bg=PANEL, fg=TEXT, font=(UI, 9)).grid(
+            row=0, column=3, sticky="e", padx=(14, 6))
+        self._entry(conn, self.ssh_port, 7).grid(row=0, column=4, sticky="w", ipady=5)
         self._label(conn, "Finds the ENET gateway via UDP 6811; detected IP is inserted as root@IP.",
                     bg=PANEL, fg=MUTED, font=(UI, 8)).grid(
-            row=1, column=1, columnspan=2, sticky="w", pady=(5, 0))
+            row=1, column=1, columnspan=4, sticky="w", pady=(5, 0))
         self._label(conn, "SSH identity (optional)", bg=PANEL, fg=TEXT,
                     font=(UI, 9)).grid(row=2, column=0, sticky="w", padx=(0, 10), pady=(9, 0))
         self._entry(conn, self.ssh_key, 44).grid(
-            row=2, column=1, columnspan=2, sticky="ew", ipady=4, pady=(9, 0))
+            row=2, column=1, columnspan=3, sticky="ew", ipady=4, pady=(9, 0))
         self.find_key_btn = ttk.Button(conn, text="Find root key on disk",
                                           style="Ghost.TButton", command=self.find_root_key)
-        self.find_key_btn.grid(row=2, column=3, padx=(8, 0), pady=(9, 0), sticky="w")
+        self.find_key_btn.grid(row=2, column=4, padx=(8, 0), pady=(9, 0), sticky="w")
         self._label(conn, "Example: ~/.ssh/mgu_root_key · leave empty to use ssh-agent/config",
                     bg=PANEL, fg=MUTED, font=(UI, 8)).grid(
-            row=3, column=1, columnspan=3, sticky="w", pady=(4, 0))
+            row=3, column=1, columnspan=4, sticky="w", pady=(4, 0))
 
         tk.Frame(inner, bg=LINE_SOFT, height=1).pack(fill="x", pady=15)
         self._section(inner, "CAPTURE WINDOW", AMBER).pack(fill="x")
@@ -483,7 +487,7 @@ class App:
         self.console.delete("1.0", "end")
         self.console.configure(state="disabled")
         self._append("MGU SDK Extractor & Logger\n")
-        self._append("Target: %s\nCapture: %s seconds\n\n" % (host, duration))
+        self._append("Target: %s · SSH port: %s\nCapture: %s seconds\n\n" % (host, self.ssh_port.get().strip(), duration))
         self.busy = True
         self.start_btn.configure(state="disabled")
         self.detect_btn.configure(state="disabled")
@@ -599,7 +603,11 @@ class App:
 
 
     def _ssh_env(self):
+        port = self.ssh_port.get().strip()
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValueError("SSH port must be a number from 1 to 65535.")
         env = os.environ.copy()
+        env["MGU_SSH_PORT"] = port
         key = self.ssh_key.get().strip()
         if key:
             env["MGU_SSH_KEY"] = os.path.expanduser(key)
