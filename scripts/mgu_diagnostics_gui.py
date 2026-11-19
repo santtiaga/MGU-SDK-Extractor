@@ -426,10 +426,10 @@ class App:
         gateways, error = result
         self.discovery_busy = False
         self.detect_btn.configure(state="normal")
-        self.start_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy or self.old_logs_busy else "disabled")
-        self.extract_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
-        self.get_lists_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
-        self.download_assets_btn.configure(state="normal" if self.full_output_dir and not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy else "disabled")
+        self.start_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
+        self.extract_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
+        self.get_lists_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
+        self.download_assets_btn.configure(state="normal" if self.full_output_dir and not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
         if error:
             self._append("[discovery] ERROR: %s\n" % error)
             self._set_status("Discovery failed · see session log", RED)
