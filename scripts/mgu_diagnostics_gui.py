@@ -301,7 +301,7 @@ class App:
             return
         self.find_key_btn.configure(state="disabled")
         self._set_status("Searching local disk for MGU SSH keys", AMBER)
-        self._append("\n[key search] Scanning your home folder for likely MGU/root SSH private keys...\\n")
+        self._append("\n[key search] Scanning your home folder for likely MGU/root SSH private keys...\n")
 
         def run():
             home = os.path.expanduser("~")
@@ -313,7 +313,7 @@ class App:
             candidates = []
             scanned = 0
             for current, dirs, files in os.walk(home):
-                dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".") or d == ".ssh"]
+                dirs[:] = [d for d in dirs if d == ".ssh" or (d not in skip_dirs and not d.startswith("."))]
                 for name in files:
                     lower = name.lower()
                     likely_name = (
@@ -336,7 +336,7 @@ class App:
                         continue
                 scanned += 1
                 if scanned % 500 == 0:
-                    self.events.put(("line", "[key search] Scanned %d folders...\\n" % scanned))
+                    self.events.put(("line", "[key search] Scanned %d folders...\n" % scanned))
             self.events.put(("key_search_done", candidates))
 
         self.key_search_worker = threading.Thread(target=run, daemon=True)
@@ -345,16 +345,16 @@ class App:
     def _key_search_finished(self, candidates):
         self.find_key_btn.configure(state="normal")
         if not candidates:
-            self._append("[key search] No likely SSH private keys found in your home folder.\\n")
+            self._append("[key search] No likely SSH private keys found in your home folder.\n")
             self._set_status("No local SSH key found", AMBER)
             return
-        self._append("[key search] Found %d possible key file(s):\\n" % len(candidates))
+        self._append("[key search] Found %d possible key file(s):\n" % len(candidates))
         for path in candidates:
-            self._append("  " + path + "\\n")
+            self._append("  " + path + "\n")
         if len(candidates) == 1:
             selected = candidates[0]
             if messagebox.askyesno("MGU root key found",
-                                   "Use this key for the SSH connection?\\n\\n" + selected):
+                                   "Use this key for the SSH connection?\n\n" + selected):
                 self.ssh_key.set(selected)
                 self._set_status("SSH identity selected", GREEN)
             else:
