@@ -22,8 +22,10 @@ EOF
 
 [[ $# -ge 1 && $# -le 3 ]] || usage
 HOST="$1"
-SSH_OPTS=(-T -o BatchMode=yes -o ConnectTimeout=10)
-SCP_OPTS=(-O -o BatchMode=yes -o ConnectTimeout=10)
+SSH_PORT="${MGU_SSH_PORT:-6811}"
+[[ "$SSH_PORT" =~ ^[0-9]+$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || { echo "Invalid MGU_SSH_PORT: $SSH_PORT" >&2; exit 2; }
+SSH_OPTS=(-T -p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10)
+SCP_OPTS=(-O -P "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10)
 if [[ -n "${MGU_SSH_KEY:-}" ]]; then
   KEY="${MGU_SSH_KEY/#\~/$HOME}"
   [[ -f "$KEY" ]] || { echo "SSH identity file not found: $KEY" >&2; exit 1; }
