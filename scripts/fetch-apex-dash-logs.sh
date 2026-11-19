@@ -6,7 +6,7 @@ set -euo pipefail
 HOST="$1"
 SSH_OPTS=(-T -o BatchMode=yes -o ConnectTimeout=10)
 if [[ -n "${MGU_SSH_KEY:-}" ]]; then
-  KEY="${MGU_SSH_KEY/#\\~/$HOME}"
+  KEY="${MGU_SSH_KEY/#\~/$HOME}"
   [[ -f "$KEY" ]] || { echo "SSH identity file not found: $KEY" >&2; exit 1; }
   SSH_OPTS+=(-i "$KEY")
 fi
@@ -16,9 +16,9 @@ mkdir -p "$OUTDIR"
 STAMP="$(date '+%Y%m%d-%H%M%S')"
 ARCHIVE="$OUTDIR/apex-dash-old-logs-$STAMP.tar.gz"
 echo "Connecting to $HOST and locating existing Apex Dash logs..."
-ssh "${SSH_OPTS[@]}" "$HOST" "sh -s" > "$ARCHIVE" <<'REMOTE'
+if ssh "${SSH_OPTS[@]}" "$HOST" "sh -s" > "$ARCHIVE" <<'REMOTE'
 set -eu
-TMP="/tmp/apex-dash-old-logs-$"
+TMP="/tmp/apex-dash-old-logs-$$"
 mkdir -p "$TMP/files"
 trap 'rm -rf "$TMP"' EXIT
 : > "$TMP/manifest"
