@@ -73,10 +73,15 @@ PY
     DONOR="$(sed -n '3p' "$FIELDS")"
     SDK_VERSION="$(sed -n '4p' "$FIELDS")"
     echo "[sdk] Using mgu-deploy donor: ${DONOR:-unknown} (oap-sdk ${SDK_VERSION:-unknown})"
-    scp "${SCP_OPTS[@]}" "$HOST:$BUNDLE" "$DEST/sdk-donor.js"
-    scp "${SCP_OPTS[@]}" -r "$HOST:$MODULE" "$DEST/oap-sdk"
-    cp "$META" "$DEST/sdk-donor-response.json"
-    METHOD="mgu-deploy sdk-donor"
+    if scp "${SCP_OPTS[@]}" "$HOST:$BUNDLE" "$DEST/sdk-donor.js" &&
+       scp "${SCP_OPTS[@]}" -r "$HOST:$MODULE" "$DEST/oap-sdk"; then
+      cp "$META" "$DEST/sdk-donor-response.json"
+      METHOD="mgu-deploy sdk-donor"
+    else
+      echo "[sdk] Could not download the donor cache; trying x_call fallback."
+      rm -f "$DEST/sdk-donor.js"
+      rm -rf "$DEST/oap-sdk"
+    fi
   else
     echo "[sdk] mgu-deploy returned unrecognized metadata; trying x_call fallback."
   fi
