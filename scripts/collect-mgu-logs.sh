@@ -93,10 +93,19 @@ run_capture renderer_paths sh -c 'ls -la /run/cluster-render /var/run/cluster-re
 run_capture app_inventory sh -c 'find /var/opt/public/oap -maxdepth 4 -type f \\( -name package.json -o -name app.json -o -iname "*apex*dash*" \\) -print 2>/dev/null'
 run_capture renderer_processes sh -c 'ps w 2>/dev/null | grep -Ei "cluster.render|ramses|oap|apex" | grep -v grep'
 run_capture sockets sh -c 'cat /proc/net/unix 2>/dev/null | grep -Ei "cluster|render|ramses|oap"; echo; netstat -an 2>/dev/null | head -300'
+# BusyBox-compatible kernel log capture: do not use GNU-only dmesg -T.
 run_capture kernel_boot dmesg
-run_capture journal_boot sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -b --no-pager -n 3000'
-run_capture renderer_unit sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -u cluster-render.service -b --no-pager -n 5000; command -v systemctl >/dev/null 2>&1 && systemctl cat cluster-render.service'
+run_capture journal_boot sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -b --no-pager -n 5000'
+run_capture journal_boot_list sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl --list-boots --no-pager'
+run_capture journal_previous_boot sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -b -1 --no-pager -n 5000'
+run_capture renderer_unit sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -u cluster-render.service --no-pager -n 8000; command -v systemctl >/dev/null 2>&1 && systemctl cat cluster-render.service'
 run_capture init_scripts sh -c 'ls -la /etc/init.d 2>/dev/null | grep -Ei "cluster|oap|render"; ls -la /etc/systemd/system 2>/dev/null | grep -Ei "cluster|oap|render"'
+run_capture log_file_inventory sh -c 'find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null | grep -Ei "dcsm|ramses|cluster.?render|kombi|instrument|apex.?dash|oap"'
+run_capture journal_all_history sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl --no-pager -o short-precise'
+run_capture journal_relevant_history sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl --no-pager -o short-precise | grep -Ei "dcsm|ramses|cluster.?render|renderer|watchdog|kombi|instrument|apex.?dash|oap"'
+run_capture journal_all_previous_boot sh -c 'command -v journalctl >/dev/null 2>&1 && journalctl -b -1 --no-pager -o short-precise'
+run_capture kombi_log_inventory sh -c 'find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null | grep -Ei "kombi|instrument.?cluster|dkombi|kombiinstrument"'
+
 
 echo "[collector] Initial system and renderer inventory captured." >&2
 
@@ -131,7 +140,7 @@ done
 if command -v journalctl >/dev/null 2>&1; then
   journalctl -f -u cluster-render.service --no-pager > "$BASE/logs/cluster-render-journal.live" 2>&1 &
   PIDS="$PIDS $(jobs -p | tail -n 1)"
-  # Keep a complete live journal stream: the OAP app unit name varies by install.
+  # Full live system stream; service names differ between MGU software builds.
   journalctl -f --no-pager > "$BASE/logs/system-journal.live" 2>&1 &
   PIDS="$PIDS $(jobs -p | tail -n 1)"
 fi
@@ -168,10 +177,56 @@ echo "[collector] Capture window complete; finalizing logs and building archive.
 run_capture final_renderer_status sh -c 'command -v cluster-render >/dev/null 2>&1 && cluster-render status; cat /run/cluster-render/status.txt 2>/dev/null'
 run_capture final_processes ps w
 run_capture final_dmesg dmesg
+# Copy existing and rotated diagnostics without modifying originals. Include compressed rotations.
+find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null |
+  grep -Ei '(dcsm|ramses|cluster.?render|kombi|instrument.?cluster|dkombi|apex.?dash|oap).*(log|out|err)|\\.(log|out|err)(\\.[0-9]+)?(\\.gz)?
+
+# Stop background followers cleanly.
+for P in $PIDS; do kill "$P" 2>/dev/null || true; done
+sleep 1
+
+{
+  echo "Apex Dash / MGU diagnostic bundle"
+  echo "Started: $START_TEXT"
+  echo "Finished: $(date 2>/dev/null)"
+  echo "Duration requested: $DURATION seconds"
+  echo "Hostname: $(hostname 2>/dev/null)"
+  echo "Kernel: $(uname -a 2>/dev/null)"
+  echo "User: $(id 2>/dev/null)"
+  echo
+  echo "Privacy: bundle can contain vehicle/app diagnostics and system identifiers."
+  echo "Review before sharing publicly."
+} > "$BASE/README.txt"
+
+ARCHIVE="$BASE.tar.gz"
+tar -czf "$ARCHIVE" -C "$(dirname "$BASE")" "$(basename "$BASE")" 2>/dev/null || {
+  echo "ERROR: tar archive creation failed" >&2
+  exit 1
+}
+echo "$ARCHIVE"
+REMOTE_SCRIPT
+)" || { echo "Remote collection failed. Check SSH access and try root@MGU." >&2; exit 1; }
+
+[[ -n "$REMOTE_ARCHIVE" ]] || { echo "MGU did not return an archive path." >&2; exit 1; }
+echo "Downloading diagnostic bundle..."
+scp "${SCP_OPTS[@]}" "$HOST:$REMOTE_ARCHIVE" "$LOCAL_ARCHIVE"
+if [[ "$KEEP_REMOTE" -eq 0 ]]; then
+  ssh "${SSH_OPTS[@]}" "$HOST" "rm -f '$REMOTE_ARCHIVE'; rm -rf '${REMOTE_ARCHIVE%.tar.gz}'" >/dev/null 2>&1 || true
+fi
+
+echo
+echo "Done:"
+echo "  $LOCAL_ARCHIVE"
+echo "Send this archive here. Do not post it publicly without reviewing it first."
+ |
+  while IFS= read -r F; do
+    SAFE="$(echo "$F" | sed 's#/#_#g')"
+    cp -p "$F" "$BASE/logs/$SAFE" 2>/dev/null || true
+  done
 if command -v journalctl >/dev/null 2>&1; then
   journalctl -u cluster-render.service --since "@$START_EPOCH" --no-pager > "$BASE/logs/cluster-render-journal.window" 2>&1
-  journalctl --since "@$START_EPOCH" --no-pager 2>/dev/null |
-    grep -Ei 'apex_dash|apex dash|cluster-render|DCSM2|RAMSES|oap_'       > "$BASE/logs/relevant-journal.window" 2>&1
+  journalctl --since "@$START_EPOCH" --no-pager -o short-precise > "$BASE/logs/system-journal.window" 2>&1
+  grep -Ei 'apex_dash|apex dash|cluster-render|DCSM2|RAMSES|oap_|watchdog|kombi|instrument' "$BASE/logs/system-journal.window" > "$BASE/logs/relevant-system-journal.log" 2>&1 || true
 fi
 
 # Stop background followers cleanly.
