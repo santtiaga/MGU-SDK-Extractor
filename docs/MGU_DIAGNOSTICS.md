@@ -70,9 +70,10 @@ To retain the temporary copy on the MGU for manual inspection, append
   process list, Unix sockets and network socket summary.
 - Native renderer log and rotated log (initial copy and live tail).
 - `cluster-render.service` journal, if systemd/journald is available.
-- Relevant journal messages filtered for Apex Dash, OAP, DCSM2, RAMSES and
-  cluster-render.
-- Kernel `dmesg`, boot journal and final snapshots.
+- Relevant journal messages filtered for Apex Dash, OAP, DCSM2, RAMSES, watchdog, KOMBI/instrument-cluster and cluster-render (`relevant-system-journal.log`).
+- Historical/rotated DCSM2, RAMSES, Cluster Renderer, Apex Dash and KOMBI-named log files under `/var/log`, `/var/opt`, `/tmp` and `/var/tmp`, including compressed rotations where present.
+- A KOMBI log-file inventory. ECU fault memory itself is not readable over ordinary MGU SSH; use ISTA/diagnostic access and save the KOMBI fault-memory report separately.
+- BusyBox-compatible kernel `dmesg` (without GNU-only `-T`), current and previous boot journals, journal boot inventory, full and filtered system history.
 - Likely OAP application log files (only log/out/err files; no arbitrary app
   data or package contents).
 - A five-second timeline of renderer status, processes, memory and sockets.
