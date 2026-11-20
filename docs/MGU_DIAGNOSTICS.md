@@ -41,6 +41,22 @@ and both SDK extraction modes.
 
 The discovery implementation is in `scripts/mgu_discovery.py`. It is adapted from the `mgu7/discovery.py` module in [idrive7-8-ssh-root](https://github.com/cauliflowermossgrape/idrive7-8-ssh-root), which is released under The Unlicense. It only performs the UDP discovery exchange; SSH authentication and log collection remain separate.
 
+## Download saved DCSM2 Lab logs only
+
+The GUI also has a separate **Download DCSM2 Lab logs only** action. It runs
+`scripts/fetch-dcsm2-lab-logs.sh`, searches for persisted `dcsm2_lab.log*`
+files once, and saves them under `mgu-diagnostics/`. It does not start the
+diagnostic capture window, follow logs, or subscribe to live events.
+
+CLI equivalent:
+
+```bash
+./scripts/fetch-dcsm2-lab-logs.sh root@192.168.1.50
+```
+
+The script preserves source paths in the inventory inside the archive and
+does not modify the original MGU log files.
+
 ## Run — command line
 
 From the repository root:
