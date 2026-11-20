@@ -82,7 +82,7 @@ run_capture() {
 # Search app-data and temporary roots explicitly; preserve each source path in the archive.
 collect_dcsm2_lab_logs() {
   PHASE="$1"
-  INVENTORY="$BASE/meta/dcsm2_lab_log_inventory_$PHASE.txt"
+  INVENTORY="$BASE/meta/dcsm2_lab_saved_log_inventory.txt"
   : > "$INVENTORY"
   ROOTS="/var/opt/public/oap /var/opt /tmp /var/tmp /home/root"
   {
@@ -93,7 +93,7 @@ collect_dcsm2_lab_logs() {
   } | sort -u | while IFS= read -r F; do
     [ -f "$F" ] || continue
     SAFE="$(echo "$F" | sed 's#/#_#g')"
-    DEST="$BASE/logs/$SAFE.$PHASE"
+    DEST="$BASE/logs/$SAFE"
     if cp -p "$F" "$DEST" 2>/dev/null; then
       echo "COPIED $F -> $DEST" >> "$INVENTORY"
     else
@@ -135,9 +135,6 @@ run_capture kombi_log_inventory sh -c 'find /var/log /var/opt /tmp /var/tmp -typ
 
 
 echo "[collector] Initial system and renderer inventory captured." >&2
-
-# Snapshot the DCSM2 Lab benchmark log before the timed capture window.
-collect_dcsm2_lab_logs initial
 
 # Copy known renderer logs before live-following them.
 for F in /var/opt/cluster-render/log/cluster-render.log /var/opt/cluster-render/log/cluster-render.log.1 /var/log/cluster-render.log /var/log/cluster-render/cluster-render.log; do
@@ -208,8 +205,8 @@ run_capture final_renderer_status sh -c 'command -v cluster-render >/dev/null 2>
 run_capture final_processes ps w
 run_capture final_dmesg dmesg
 
-# Capture the completed DCSM2 Lab log (and any rotated copies) after the test window.
-collect_dcsm2_lab_logs final
+# One-time retrieval of persisted DCSM2 Lab logs after the capture window; no tail/follow.
+collect_dcsm2_lab_logs saved
 # Copy existing and rotated diagnostics without modifying originals. Include compressed rotations.
 find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null |
   grep -Ei 'dcsm|ramses|cluster.?render|kombi|instrument.?cluster|dkombi|apex.?dash|oap' |
