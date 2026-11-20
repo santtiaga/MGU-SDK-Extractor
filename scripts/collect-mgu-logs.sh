@@ -179,7 +179,11 @@ run_capture final_processes ps w
 run_capture final_dmesg dmesg
 # Copy existing and rotated diagnostics without modifying originals. Include compressed rotations.
 find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null |
-  grep -Ei '(dcsm|ramses|cluster.?render|kombi|instrument.?cluster|dkombi|apex.?dash|oap).*(log|out|err)|\\.(log|out|err)(\\.[0-9]+)?(\\.gz)?
+  grep -Ei 'dcsm|ramses|cluster.?render|kombi|instrument.?cluster|dkombi|apex.?dash|oap' |
+  while IFS= read -r F; do
+    SAFE="$(echo "$F" | sed 's#/#_#g')"
+    cp -p "$F" "$BASE/logs/$SAFE" 2>/dev/null || true
+  done
 
 # Stop background followers cleanly.
 for P in $PIDS; do kill "$P" 2>/dev/null || true; done
