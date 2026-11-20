@@ -77,6 +77,8 @@ class App:
         self.download_busy = False
         self.old_logs_busy = False
         self.old_logs_process = None
+        self.dcsm2_logs_busy = False
+        self.dcsm2_logs_process = None
         self.full_output_dir = None
         self.full_output_host = None
         self.busy = False
@@ -239,6 +241,9 @@ class App:
         self.old_logs_btn = ttk.Button(body, text="Download all old Apex Dash logs",
                                        style="Ghost.TButton", command=self.download_old_logs)
         self.old_logs_btn.pack(fill="x", pady=(7, 0))
+        self.dcsm2_logs_btn = ttk.Button(body, text="Download DCSM2 Lab logs only",
+                                         style="Ghost.TButton", command=self.download_dcsm2_logs)
+        self.dcsm2_logs_btn.pack(fill="x", pady=(7, 0))
 
         loghdr = tk.Frame(body, bg=BG)
         loghdr.pack(fill="x", pady=(18, 7))
@@ -306,6 +311,8 @@ class App:
                     self._download_finished(payload)
                 elif kind == "old_logs_done":
                     self._old_logs_finished(payload)
+                elif kind == "dcsm2_logs_done":
+                    self._dcsm2_logs_finished(payload)
         except queue.Empty:
             pass
         self.root.after(100, self._drain)
@@ -803,6 +810,75 @@ class App:
             self._set_status("Historical log download failed", RED)
             self._append("[old logs] Downloader exited with code %s.\n" % code)
 
+    def download_dcsm2_logs(self):
+        if (self.busy or self.discovery_busy or self.sdk_busy or self.full_busy
+                or self.download_busy or self.old_logs_busy or self.dcsm2_logs_busy):
+            return
+        host = self.host.get().strip()
+        if not host or host == "root@":
+            messagebox.showerror("SSH target required",
+                                 "Find the MGU or enter root@MGU-IP / an SSH host alias.")
+            return
+        if any(ch.isspace() for ch in host):
+            messagebox.showerror("Invalid SSH target", "Use one SSH destination, without spaces.")
+            return
+        script = os.path.join(HERE, "fetch-dcsm2-lab-logs.sh")
+        if not os.path.isfile(script):
+            messagebox.showerror("DCSM2 Lab downloader not found",
+                                 "Expected scripts/fetch-dcsm2-lab-logs.sh next to this GUI.")
+            return
+        self.dcsm2_logs_busy = True
+        self.dcsm2_logs_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
+        self.detect_btn.configure(state="disabled")
+        self.extract_btn.configure(state="disabled")
+        self.get_lists_btn.configure(state="disabled")
+        self.download_assets_btn.configure(state="disabled")
+        self.old_logs_btn.configure(state="disabled")
+        self._set_status("Downloading saved DCSM2 Lab logs", AMBER)
+        self._append("\\n[DCSM2 Lab] Retrieving saved dcsm2_lab.log files only; no live capture...\\n")
+        ssh_env = self._ssh_env()
+
+        def run():
+            try:
+                self.dcsm2_logs_process = subprocess.Popen(
+                    ["bash", script, host], cwd=ROOT, env=ssh_env,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                    universal_newlines=True)
+                for line in self.dcsm2_logs_process.stdout:
+                    self.events.put(("line", line))
+                code = self.dcsm2_logs_process.wait()
+                self.events.put(("dcsm2_logs_done", (code, None)))
+            except Exception as exc:
+                self.events.put(("dcsm2_logs_done", (1, str(exc))))
+
+        self.dcsm2_logs_worker = threading.Thread(target=run, daemon=True)
+        self.dcsm2_logs_worker.start()
+
+    def _dcsm2_logs_finished(self, result):
+        code, error = result
+        self.dcsm2_logs_busy = False
+        self.dcsm2_logs_process = None
+        self.dcsm2_logs_btn.configure(state="normal")
+        self.start_btn.configure(state="normal")
+        self.detect_btn.configure(state="normal")
+        self.extract_btn.configure(state="normal")
+        self.get_lists_btn.configure(state="normal")
+        self.download_assets_btn.configure(state="normal" if self.full_output_dir else "disabled")
+        self.old_logs_btn.configure(state="normal")
+        if error:
+            self._append("[DCSM2 Lab] ERROR: %s\\n" % error)
+        if code == 0:
+            self._set_status("Saved DCSM2 Lab logs downloaded", GREEN)
+            self._append("[DCSM2 Lab] Archive saved in mgu-diagnostics.\\n")
+        elif code == 4:
+            self._set_status("No saved DCSM2 Lab logs found", AMBER)
+            self._append("[DCSM2 Lab] No dcsm2_lab.log files were found.\\n")
+        else:
+            self._set_status("DCSM2 Lab log download failed", RED)
+            self._append("[DCSM2 Lab] Downloader exited with code %s.\\n" % code)
+
     def _download_finished(self, result):
         code, error = result
         self.download_busy = False
@@ -843,7 +919,7 @@ class App:
             messagebox.showinfo("SDK output folder", "%s\n\n%s" % (SDK_OUTDIR, exc))
 
     def _close(self):
-        if self.busy or self.sdk_busy or self.full_busy or self.download_busy or self.old_logs_busy:
+        if self.busy or self.sdk_busy or self.full_busy or self.download_busy or self.old_logs_busy or self.dcsm2_logs_busy:
             if not messagebox.askyesno(
                 "Capture is running",
                 "Closing will terminate the active SSH operation. Temporary data may remain on the MGU. Close anyway?"):
@@ -858,6 +934,8 @@ class App:
                 self.download_process.terminate()
             if self.old_logs_process and self.old_logs_process.poll() is None:
                 self.old_logs_process.terminate()
+            if self.dcsm2_logs_process and self.dcsm2_logs_process.poll() is None:
+                self.dcsm2_logs_process.terminate()
         self.root.destroy()
 
 
