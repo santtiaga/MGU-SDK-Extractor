@@ -78,6 +78,33 @@ run_capture() {
   } > "$BASE/meta/$NAME.txt"
 }
 
+# DCSM2 Lab writes its persistent benchmark journal to ctx.dataDir/dcsm2_lab.log.
+# Search app-data and temporary roots explicitly; preserve each source path in the archive.
+collect_dcsm2_lab_logs() {
+  PHASE="$1"
+  INVENTORY="$BASE/meta/dcsm2_lab_log_inventory_$PHASE.txt"
+  : > "$INVENTORY"
+  ROOTS="/var/opt/public/oap /var/opt /tmp /var/tmp /home/root"
+  {
+    for ROOT in $ROOTS; do
+      [ -d "$ROOT" ] || continue
+      find "$ROOT" -type f -name 'dcsm2_lab.log*' -print 2>/dev/null
+    done
+  } | sort -u | while IFS= read -r F; do
+    [ -f "$F" ] || continue
+    SAFE="$(echo "$F" | sed 's#/#_#g')"
+    DEST="$BASE/logs/$SAFE.$PHASE"
+    if cp -p "$F" "$DEST" 2>/dev/null; then
+      echo "COPIED $F -> $DEST" >> "$INVENTORY"
+    else
+      echo "FOUND_BUT_COPY_FAILED $F" >> "$INVENTORY"
+    fi
+  done
+  if [ ! -s "$INVENTORY" ]; then
+    echo "No dcsm2_lab.log files found in: $ROOTS" > "$INVENTORY"
+  fi
+}
+
 # Basic platform and service inventory; commands are probed, never assumed.
 run_capture system uname -a
 run_capture date date
@@ -108,6 +135,9 @@ run_capture kombi_log_inventory sh -c 'find /var/log /var/opt /tmp /var/tmp -typ
 
 
 echo "[collector] Initial system and renderer inventory captured." >&2
+
+# Snapshot the DCSM2 Lab benchmark log before the timed capture window.
+collect_dcsm2_lab_logs initial
 
 # Copy known renderer logs before live-following them.
 for F in /var/opt/cluster-render/log/cluster-render.log /var/opt/cluster-render/log/cluster-render.log.1 /var/log/cluster-render.log /var/log/cluster-render/cluster-render.log; do
@@ -177,6 +207,9 @@ echo "[collector] Capture window complete; finalizing logs and building archive.
 run_capture final_renderer_status sh -c 'command -v cluster-render >/dev/null 2>&1 && cluster-render status; cat /run/cluster-render/status.txt 2>/dev/null'
 run_capture final_processes ps w
 run_capture final_dmesg dmesg
+
+# Capture the completed DCSM2 Lab log (and any rotated copies) after the test window.
+collect_dcsm2_lab_logs final
 # Copy existing and rotated diagnostics without modifying originals. Include compressed rotations.
 find /var/log /var/opt /tmp /var/tmp -type f 2>/dev/null |
   grep -Ei 'dcsm|ramses|cluster.?render|kombi|instrument.?cluster|dkombi|apex.?dash|oap' |
