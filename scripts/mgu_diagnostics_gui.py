@@ -456,26 +456,26 @@ class App:
         self.get_lists_btn.configure(state="normal" if not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
         self.download_assets_btn.configure(state="normal" if self.full_output_dir and not self.busy and not self.sdk_busy and not self.full_busy and not self.download_busy and not self.old_logs_busy else "disabled")
         if error:
-            self._append("[discovery] ERROR: %s\\n" % error)
+            self._append("[discovery] ERROR: %s\n" % error)
             self._set_status("Discovery failed · see session log", RED)
             return
         if not gateways:
-            self._append("[discovery] No ENET gateway replied on UDP 6811.\\n")
-            self._append("[discovery] Check ENET connection, adapter and vehicle power.\\n")
+            self._append("[discovery] No ENET gateway replied on UDP 6811.\n")
+            self._append("[discovery] Check ENET connection, adapter and vehicle power.\n")
             self._set_status("No ENET gateway found", AMBER)
             return
 
         for gw in gateways:
-            self._append("[discovery] Found ZGW %s%s\\n" %
+            self._append("[discovery] Found ZGW %s%s\n" %
                          (gw.ip, " · VIN " + gw.vin if gw.vin else ""))
         successful = [item for item in resolved if item[1] is not None]
         for gw, addresses, read_error in resolved:
             if addresses:
                 mgu_ip, gateway_ip, route_ip = addresses
-                self._append("[discovery] UDS 0x172A: MGU=%s · ZGW=%s · route=%s\\n" %
+                self._append("[discovery] UDS 0x172A: MGU=%s · ZGW=%s · route=%s\n" %
                              (mgu_ip, gateway_ip, route_ip))
             else:
-                self._append("[discovery] Could not read MGU IP via %s: %s\\n" %
+                self._append("[discovery] Could not read MGU IP via %s: %s\n" %
                              (gw.ip, read_error or "no response"))
         if not successful:
             self._set_status("ZGW found · MGU IP read failed", AMBER)
@@ -486,10 +486,10 @@ class App:
         mgu_ip = addresses[0]
         self.host.set("root@" + mgu_ip)
         self.ssh_port.set("22")
-        self._append("[discovery] Selected MGU %s via ZGW %s. SSH target: %s:22\\n" %
+        self._append("[discovery] Selected MGU %s via ZGW %s. SSH target: %s:22\n" %
                      (mgu_ip, selected.ip, self.host.get().strip()))
         if len(successful) > 1:
-            self._append("[discovery] %d MGU(s) resolved; first response selected.\\n" %
+            self._append("[discovery] %d MGU(s) resolved; first response selected.\n" %
                          len(successful))
         self._set_status("MGU IP resolved · SSH TCP 22 ready", GREEN)
 
@@ -836,7 +836,7 @@ class App:
         self.download_assets_btn.configure(state="disabled")
         self.old_logs_btn.configure(state="disabled")
         self._set_status("Downloading saved DCSM2 Lab logs", AMBER)
-        self._append("\\n[DCSM2 Lab] Retrieving saved dcsm2_lab.log files only; no live capture...\\n")
+        self._append("\n[DCSM2 Lab] Retrieving saved dcsm2_lab.log files only; no live capture...\n")
         ssh_env = self._ssh_env()
 
         def run():
@@ -868,16 +868,16 @@ class App:
         self.download_assets_btn.configure(state="normal" if self.full_output_dir else "disabled")
         self.old_logs_btn.configure(state="normal")
         if error:
-            self._append("[DCSM2 Lab] ERROR: %s\\n" % error)
+            self._append("[DCSM2 Lab] ERROR: %s\n" % error)
         if code == 0:
             self._set_status("Saved DCSM2 Lab logs downloaded", GREEN)
-            self._append("[DCSM2 Lab] Archive saved in mgu-diagnostics.\\n")
+            self._append("[DCSM2 Lab] Archive saved in mgu-diagnostics.\n")
         elif code == 4:
             self._set_status("No saved DCSM2 Lab logs found", AMBER)
-            self._append("[DCSM2 Lab] No dcsm2_lab.log files were found.\\n")
+            self._append("[DCSM2 Lab] No dcsm2_lab.log files were found.\n")
         else:
             self._set_status("DCSM2 Lab log download failed", RED)
-            self._append("[DCSM2 Lab] Downloader exited with code %s.\\n" % code)
+            self._append("[DCSM2 Lab] Downloader exited with code %s.\n" % code)
 
     def _download_finished(self, result):
         code, error = result
